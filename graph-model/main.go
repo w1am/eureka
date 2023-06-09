@@ -4,91 +4,98 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"log"
 	"os"
 
 	_ "github.com/lib/pq"
 )
 
 const (
-	host     = "localhost"
-	port     = 5432
-	user     = "admin"
-	password = "admin"
-	dbname   = "graph"
+	dbUser     = "admin"
+	dbPassword = "admin"
+	dbName     = "graph"
+	port     = "5511"
 )
 
-type Person struct {
-	ID    string
-	Name  string
-	OrgID string
-}
-
-type Organization struct {
-	ID   string
-	Name string
+type DBHandler struct {
+	*sql.DB
 }
 
 func main() {
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
-
-	db, err := sql.Open("postgres", psqlInfo)
+	db, err := connectDB(dbUser, dbPassword, dbName, port)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer db.Close()
 
-	csvFile, err := os.Open("./data/person.csv")
+	err = processCSVFile(db, "./data/entity.csv", "INSERT INTO entity(node_id, entity_type, entity_id) VALUES ($1, $2, $3)")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	r := csv.NewReader(csvFile)
-	r.Read()
-	personRecords, err := r.ReadAll()
+	err = processCSVFile(db, "./data/relation.csv", "INSERT INTO relation(parent, child) VALUES ($1, $2)")
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	for _, record := range personRecords {
-		person := Person{
-			ID:    record[0],
-			Name:  record[1],
-			OrgID: record[2],
-		}
-
-		_, err := db.Exec(`INSERT INTO entity (entity_type, entity_id) VALUES ('person', $1)`, person.ID)
-		if err != nil {
-			log.Fatal(err)
-		}
-		_, err = db.Exec(`INSERT INTO relation (parent, child) VALUES ($1, $2)`, person.OrgID, person.ID)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	csvFile, err = os.Open("./data/organization.csv")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	r = csv.NewReader(csvFile)
-	r.Read()
-	orgRecords, err := r.ReadAll()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for _, record := range orgRecords {
-		org := Organization{
-			ID:   record[0],
-			Name: record[1],
-		}
-
-		_, err := db.Exec(`INSERT INTO entity (entity_type, entity_id) VALUES ('organization', $1)`, org.ID)
-		if err != nil {
-			log.Fatal(err)
-		}
+		panic(err)
 	}
 }
+
+func connectDB(user, password, dbname string, port string) (*DBHandler, error) {
+	connStr := fmt.Sprintf("user=%s password=%s dbname=%s port=%s sslmode=disable", user, password, dbname, port)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, err
+	}
+	return &DBHandler{db}, nil
+}
+
+func processCSVFile(dbHandler *DBHandler, filename string, query string) error {
+	records, err := parseCSV(filename)
+	if err != nil {
+		return err
+	}
+	return dbHandler.insertRecords(query, records)
+}
+
+func parseCSV(filename string) ([][]string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = ','
+	reader.LazyQuotes = true
+	_, err = reader.Read()
+	if err != nil {
+		return nil, err
+	}
+	return reader.ReadAll()
+}
+
+func (db *DBHandler) insertRecords(query string, records [][]string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, record := range records {
+		values := make([]interface{}, len(record))
+		for i, v := range record {
+			values[i] = v
+		}
+
+		_, err := stmt.Exec(values...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+

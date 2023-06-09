@@ -1,8 +1,10 @@
 DROP TYPE IF EXISTS entity_type CASCADE;
 
 CREATE TYPE entity_type AS ENUM (
-  'organization',
-  'person'
+  'Person',
+  'Organization',
+  'Location',
+  'Event'
 );
 
 DROP TABLE IF EXISTS entity;

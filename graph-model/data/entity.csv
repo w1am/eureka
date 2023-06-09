@@ -1,0 +1,11 @@
+node_id,entity_type,entity_id
+1,Person,P1
+2,Organization,O1
+3,Person,P2
+4,Organization,O2
+5,Location,L1
+6,Event,E1
+7,Person,P3
+8,Organization,O3
+9,Location,L2
+10,Event,E2
